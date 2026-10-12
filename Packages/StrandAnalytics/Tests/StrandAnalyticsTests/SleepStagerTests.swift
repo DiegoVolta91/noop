@@ -83,6 +83,33 @@ final class SleepStagerTests: XCTestCase {
         XCTAssertTrue(SleepStager.detectSleep(hr: hr, gravity: grav).isEmpty)
     }
 
+    func testSparseGravityFallsBackToOvernightHR() {
+        // A short still-motion island is too brief to create a motion session, while the
+        // continuous overnight HR stream can form one conservative HR-only candidate.
+        let start = nightStart(02)
+        let durationS = 8 * 60 * 60
+        let hr = hrStream(start: start, durationS: durationS, bpm: 50)
+        let grav = stillGravity(start: start, durationS: 30 * 60)
+        var trace: [String] = []
+
+        let sessions = SleepStager.detectSleep(hr: hr, gravity: grav,
+                                                traceSink: { trace.append($0) })
+
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertTrue(sessions[0].hrOnly)
+        XCTAssertEqual(sessions[0].start, start)
+        XCTAssertTrue(trace.contains { $0.contains("sparseHrFallback") })
+    }
+
+    func testSparseGravityHRFallbackRejectsDaytimeOnset() {
+        let start = daytimeStart(12)
+        let durationS = 8 * 60 * 60
+        let hr = hrStream(start: start, durationS: durationS, bpm: 50)
+        let grav = stillGravity(start: start, durationS: 30 * 60)
+
+        XCTAssertTrue(SleepStager.detectSleep(hr: hr, gravity: grav).isEmpty)
+    }
+
     func testDetectSleepEmptyGravity() {
         XCTAssertTrue(SleepStager.detectSleep(gravity: []).isEmpty)
     }

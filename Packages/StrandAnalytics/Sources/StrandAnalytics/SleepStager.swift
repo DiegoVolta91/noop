@@ -1617,6 +1617,25 @@ public enum SleepStager {
             if !continuesChain { chainFromOvernight = isOvernightOnset(p.start, tzOffsetSeconds: tzOffsetSeconds) }
             chainPrevEnd = p.end
         }
+        // Sparse WHOOP backfills can contain gravity samples without enough continuity to form
+        // even one candidate run. In that specific case, reuse the existing HR-only spine as a
+        // conservative rescue. Keep it overnight-only and apply the same off-wrist/span limits;
+        // dense-gravity nights and any night already producing a session are unchanged.
+        if sparse && sessions.isEmpty {
+            let hrOnly = hrOnlySessions(day: "sparse-gravity", hr: hrS, rr: rrS, resp: respS)
+            let rescued = hrOnly.filter { session in
+                let span = session.end - session.start
+                guard isOvernightOnset(session.start, tzOffsetSeconds: tzOffsetSeconds),
+                      span <= maxMainSleepSpanS else { return false }
+                let period = Period(stage: "sleep", start: session.start, end: session.end)
+                return offWristFraction(period, hr: hrS, wristOff: wristOff) < maxOffWristSleepFraction
+            }
+            sessions.append(contentsOf: rescued)
+            traceSink?(GateTrace.runLine(index: -1, startTs: rescued.first?.start ?? 0,
+                endTs: rescued.first?.end ?? 0, verdict: rescued.isEmpty ? .dropped : .kept,
+                gate: "sparseHrFallback",
+                detail: "sparse=true motionSessions=0 hrCandidates=\(hrOnly.count) kept=\(rescued.count) overnightOnly=true"))
+        }
         sessions.sort { $0.start < $1.start }
         // #737 follow-up: one glanceable line summarising the whole detection pass. A large
         // `detectedSpanMin` with most runs `droppedMinSleep` and a small `survivingSpanMin` is exactly
